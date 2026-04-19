@@ -18,6 +18,15 @@ export function RoutePlanner() {
   const [origin, setOrigin] = React.useState("")
   const [destination, setDestination] = React.useState("")
   const [waypoints, setWaypoints] = React.useState<WaypointField[]>([])
+  const [showAlternativeRoutes, setShowAlternativeRoutes] = React.useState(false)
+  const [alternativeGeometries, setAlternativeGeometries] = React.useState<
+    Feature<LineString>[]
+  >([])
+  const [alternativeMetrics, setAlternativeMetrics] = React.useState<
+    { distanceMeters: number; durationSeconds: number }[]
+  >([])
+  /** Współrzędne ostatnio pomyślnie zgeokodowanej trasy (ref = aktualna wartość przy kliknięciu przełącznika). */
+  const plannedCoordsRef = React.useRef<{ lng: number; lat: number }[] | null>(null)
 
   const [routeGeometry, setRouteGeometry] =
     React.useState<Feature<LineString> | null>(null)
@@ -38,6 +47,15 @@ export function RoutePlanner() {
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
+  const routeGeometryRef = React.useRef(routeGeometry)
+  routeGeometryRef.current = routeGeometry
+  const alternativeGeometriesRef = React.useRef(alternativeGeometries)
+  alternativeGeometriesRef.current = alternativeGeometries
+  const alternativeMetricsRef = React.useRef(alternativeMetrics)
+  alternativeMetricsRef.current = alternativeMetrics
+  const summaryRef = React.useRef(summary)
+  summaryRef.current = summary
+
   const handleAddWaypoint = React.useCallback(() => {
     setWaypoints((w) => [...w, { id: crypto.randomUUID(), value: "" }])
   }, [])
@@ -50,10 +68,89 @@ export function RoutePlanner() {
     setWaypoints((rows) => rows.filter((row) => row.id !== id))
   }, [])
 
+  const handleSelectAlternativeRoute = React.useCallback((altIndex: number) => {
+    const primary = routeGeometryRef.current
+    const alts = alternativeGeometriesRef.current
+    const metrics = alternativeMetricsRef.current
+    const sum = summaryRef.current
+    if (
+      !primary ||
+      !sum ||
+      altIndex < 0 ||
+      altIndex >= alts.length ||
+      metrics.length !== alts.length
+    ) {
+      return
+    }
+
+    const pickedGeo = alts[altIndex]
+    const pickedMetric = metrics[altIndex]
+    if (!pickedGeo?.geometry?.coordinates?.length || !pickedMetric) return
+
+    const newAlts: Feature<LineString>[] = []
+    const newMetrics: { distanceMeters: number; durationSeconds: number }[] = []
+
+    newAlts.push(primary)
+    newMetrics.push({
+      distanceMeters: sum.distanceMeters,
+      durationSeconds: sum.durationSeconds,
+    })
+
+    for (let i = 0; i < alts.length; i++) {
+      if (i === altIndex) continue
+      const g = alts[i]
+      const m = metrics[i]
+      if (g && m) {
+        newAlts.push(g)
+        newMetrics.push(m)
+      }
+    }
+
+    setRouteGeometry(pickedGeo)
+    setAlternativeGeometries(newAlts)
+    setAlternativeMetrics(newMetrics)
+    setSummary(pickedMetric)
+  }, [])
+
+  /**
+   * Przełącznik = preferencja. Dla A→B: pełne alternatywy w jednym żądaniu. Dla wielu punktów: główna trasa z waypointami,
+   * a alternatywy to warianty odcinka start → cel (osobne API), główne podsumowanie = trasa z przystankami.
+   */
+  const handleShowAlternativeRoutesChange = React.useCallback(async (checked: boolean) => {
+    if (!checked) {
+      setShowAlternativeRoutes(false)
+      setAlternativeGeometries([])
+      setAlternativeMetrics([])
+      return
+    }
+
+    setShowAlternativeRoutes(true)
+
+    const pts = plannedCoordsRef.current
+    if (!pts || pts.length < 2) return
+
+    setError(null)
+    try {
+      const endpoints =
+        pts.length === 2 ? pts : [pts[0]!, pts[pts.length - 1]!]
+      const res = await fetchDrivingRoute(endpoints, { alternatives: true })
+      setAlternativeGeometries(res?.alternativeGeometries ?? [])
+      setAlternativeMetrics(res?.alternativeMetrics ?? [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Nie udało się pobrać tras alternatywnych.")
+      setAlternativeGeometries([])
+      setAlternativeMetrics([])
+    }
+  }, [])
+
   const handleClear = React.useCallback(() => {
     setOrigin("")
     setDestination("")
     setWaypoints([])
+    setShowAlternativeRoutes(false)
+    setAlternativeGeometries([])
+    setAlternativeMetrics([])
+    plannedCoordsRef.current = null
     setRouteGeometry(null)
     setStartPoint(null)
     setEndPoint(null)
@@ -83,6 +180,9 @@ export function RoutePlanner() {
     setLoading(true)
     setSummary(null)
     setRouteGeometry(null)
+    setAlternativeGeometries([])
+    setAlternativeMetrics([])
+    plannedCoordsRef.current = null
     setStartPoint(null)
     setEndPoint(null)
     setViaPoints([])
@@ -103,6 +203,7 @@ export function RoutePlanner() {
       }
 
       const coords = resolved.map((h) => ({ lng: h.lng, lat: h.lat }))
+      plannedCoordsRef.current = coords
 
       setStartPoint(coords[0] ?? null)
       setEndPoint(coords[coords.length - 1] ?? null)
@@ -117,24 +218,62 @@ export function RoutePlanner() {
         }))
       )
 
-      const route = await fetchDrivingRoute(coords)
+      if (coords.length === 2) {
+        const route = await fetchDrivingRoute(coords, {
+          alternatives: showAlternativeRoutes,
+        })
 
-      if (!route) {
-        setError("Nie udało się wyznaczyć trasy między tymi punktami.")
-        return
+        if (!route) {
+          setError("Nie udało się wyznaczyć trasy między tymi punktami.")
+          return
+        }
+
+        setRouteGeometry(route.geometry)
+        setAlternativeGeometries(route.alternativeGeometries ?? [])
+        setAlternativeMetrics(route.alternativeMetrics ?? [])
+        setSummary({
+          distanceMeters: route.distanceMeters,
+          durationSeconds: route.durationSeconds,
+        })
+      } else {
+        const route = await fetchDrivingRoute(coords, {
+          alternatives: false,
+        })
+
+        if (!route) {
+          setError("Nie udało się wyznaczyć trasy między tymi punktami.")
+          return
+        }
+
+        setRouteGeometry(route.geometry)
+        setSummary({
+          distanceMeters: route.distanceMeters,
+          durationSeconds: route.durationSeconds,
+        })
+
+        if (showAlternativeRoutes) {
+          try {
+            const ends = [coords[0]!, coords[coords.length - 1]!]
+            const altBundle = await fetchDrivingRoute(ends, {
+              alternatives: true,
+            })
+            setAlternativeGeometries(altBundle?.alternativeGeometries ?? [])
+            setAlternativeMetrics(altBundle?.alternativeMetrics ?? [])
+          } catch {
+            setAlternativeGeometries([])
+            setAlternativeMetrics([])
+          }
+        } else {
+          setAlternativeGeometries([])
+          setAlternativeMetrics([])
+        }
       }
-
-      setRouteGeometry(route.geometry)
-      setSummary({
-        distanceMeters: route.distanceMeters,
-        durationSeconds: route.durationSeconds,
-      })
     } catch (e) {
       setError(e instanceof Error ? e.message : "Wystąpił nieznany błąd.")
     } finally {
       setLoading(false)
     }
-  }, [destination, origin, waypoints])
+  }, [destination, origin, showAlternativeRoutes, waypoints])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-background dark:bg-transparent">
@@ -185,6 +324,12 @@ export function RoutePlanner() {
           <MapCanvas
             className="min-h-[52vh] lg:min-h-[calc(100vh-8rem)]"
             routeGeometry={routeGeometry}
+            alternativeRouteGeometries={alternativeGeometries}
+            onSelectAlternativeRoute={
+              alternativeGeometries.length > 0 && viaPoints.length === 0
+                ? handleSelectAlternativeRoute
+                : undefined
+            }
             startPoint={startPoint}
             endPoint={endPoint}
             viaPoints={viaPoints}
@@ -201,9 +346,11 @@ export function RoutePlanner() {
             onDestinationChange={setDestination}
             onOriginChange={setOrigin}
             onRemoveWaypoint={handleRemoveWaypoint}
+            onShowAlternativeRoutesChange={handleShowAlternativeRoutesChange}
             onSubmit={handlePlanRoute}
             onWaypointChange={handleWaypointChange}
             origin={origin}
+            showAlternativeRoutes={showAlternativeRoutes}
             summaryDistance={summary ? formatDistanceMeters(summary.distanceMeters) : null}
             summaryDuration={summary ? formatDurationSeconds(summary.durationSeconds) : null}
             waypoints={waypoints}

@@ -12,6 +12,10 @@ export type DrivingRouteResult = {
   geometry: Feature<LineString>
   distanceMeters: number
   durationSeconds: number
+  /** Do 2 tras od Mapbox (routes[1], routes[2]); puste bez `alternatives` lub przy >2 punktach. */
+  alternativeGeometries: Feature<LineString>[]
+  /** Ta sama kolejność co `alternativeGeometries` (metryki z Directions API). */
+  alternativeMetrics: { distanceMeters: number; durationSeconds: number }[]
 }
 
 /**
@@ -54,11 +58,17 @@ export async function geocodeForward(query: string): Promise<GeocodeHit | null> 
   }
 }
 
+export type FetchDrivingRouteOptions = {
+  /** Mapbox zwraca do 2 alternatyw tylko dla trasy A→B (dokładnie 2 punkty). */
+  alternatives?: boolean
+}
+
 /**
  * Trasa samochodowa przez dowolną liczbę punktów (Mapbox Directions API).
  */
 export async function fetchDrivingRoute(
-  points: { lng: number; lat: number }[]
+  points: { lng: number; lat: number }[],
+  options?: FetchDrivingRouteOptions
 ): Promise<DrivingRouteResult | null> {
   const token = getMapboxAccessToken()
   if (!token?.trim()) {
@@ -72,6 +82,11 @@ export async function fetchDrivingRoute(
   url.searchParams.set("access_token", token)
   url.searchParams.set("geometries", "geojson")
   url.searchParams.set("overview", "full")
+
+  const wantAlternatives = Boolean(options?.alternatives && points.length === 2)
+  if (wantAlternatives) {
+    url.searchParams.set("alternatives", "true")
+  }
 
   const res = await fetch(url.toString())
   if (!res.ok) {
@@ -94,9 +109,30 @@ export async function fetchDrivingRoute(
     geometry: r.geometry,
   }
 
+  const alternativeGeometries: Feature<LineString>[] = []
+  const alternativeMetrics: { distanceMeters: number; durationSeconds: number }[] = []
+  if (wantAlternatives && data.routes.length > 1) {
+    for (let i = 1; i < Math.min(data.routes.length, 3); i++) {
+      const alt = data.routes[i]
+      if (alt?.geometry?.coordinates?.length) {
+        alternativeGeometries.push({
+          type: "Feature",
+          properties: {},
+          geometry: alt.geometry,
+        })
+        alternativeMetrics.push({
+          distanceMeters: alt.distance,
+          durationSeconds: alt.duration,
+        })
+      }
+    }
+  }
+
   return {
     geometry,
     distanceMeters: r.distance,
     durationSeconds: r.duration,
+    alternativeGeometries,
+    alternativeMetrics,
   }
 }

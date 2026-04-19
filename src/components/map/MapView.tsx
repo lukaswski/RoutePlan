@@ -4,7 +4,7 @@ import "mapbox-gl/dist/mapbox-gl.css"
 
 import type { Feature, LineString } from "geojson"
 import mapboxgl from "mapbox-gl"
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import Map, {
   Layer,
   Marker,
@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils"
 export type MapViewProps = {
   className?: string
   routeGeometry: Feature<LineString> | null
+  /** Do 2 alternatywnych tras (Mapbox), tylko dla A→B. */
+  alternativeRouteGeometries: Feature<LineString>[]
+  /** Kliknięcie przerywanej trasy — zamiana z trasą główną (indeks zwrócony przez Mapbox). */
+  onSelectAlternativeRoute?: (alternativeIndex: number) => void
   startPoint: { lng: number; lat: number } | null
   endPoint: { lng: number; lat: number } | null
   /** Punkty pośrednie (przystanki między startem a celem). */
@@ -32,15 +36,27 @@ const INITIAL_VIEW_STATE = {
   zoom: 6,
 }
 
+/** Mapbox rzuca, jeśli `layers` zawiera id jeszcze nie dodany do stylu (React dodaje warstwy asynchronicznie). */
+function existingLayerIds(map: mapboxgl.Map, ids: string[]): string[] {
+  return ids.filter((id) => Boolean(map.getLayer(id)))
+}
+
 export function MapView({
   className,
   routeGeometry,
+  alternativeRouteGeometries,
+  onSelectAlternativeRoute,
   startPoint,
   endPoint,
   viaPoints,
 }: MapViewProps) {
   const token = getMapboxAccessToken()
   const mapRef = useRef<MapRef>(null)
+
+  const interactiveAltLayerIds = useMemo(
+    () => alternativeRouteGeometries.map((_, i) => `route-alt-hit-${i}`),
+    [alternativeRouteGeometries.length]
+  )
 
   useEffect(() => {
     const map = mapRef.current?.getMap()
@@ -51,6 +67,11 @@ export function MapView({
     for (const c of coords) {
       bounds.extend(c as [number, number])
     }
+    for (const alt of alternativeRouteGeometries) {
+      const ac = alt.geometry?.coordinates
+      if (!ac) continue
+      for (const c of ac) bounds.extend(c as [number, number])
+    }
     if (startPoint) bounds.extend([startPoint.lng, startPoint.lat])
     if (endPoint) bounds.extend([endPoint.lng, endPoint.lat])
     for (const v of viaPoints) bounds.extend([v.lng, v.lat])
@@ -60,7 +81,7 @@ export function MapView({
       duration: 900,
       maxZoom: 14,
     })
-  }, [routeGeometry, startPoint, endPoint, viaPoints])
+  }, [alternativeRouteGeometries, routeGeometry, startPoint, endPoint, viaPoints])
 
   if (!token) {
     return (
@@ -95,6 +116,47 @@ export function MapView({
         style={{ width: "100%", height: "100%" }}
         mapStyle="mapbox://styles/mapbox/dark-v11"
         attributionControl
+        onClick={(e) => {
+          if (!onSelectAlternativeRoute || interactiveAltLayerIds.length === 0) return
+          const map = mapRef.current?.getMap()
+          if (!map) return
+          const ready = existingLayerIds(map, interactiveAltLayerIds)
+          if (ready.length === 0) return
+          let feats: mapboxgl.MapboxGeoJSONFeature[]
+          try {
+            feats = map.queryRenderedFeatures(e.point, { layers: ready })
+          } catch {
+            return
+          }
+          const lid = feats[0]?.layer?.id
+          if (!lid?.startsWith("route-alt-hit-")) return
+          const idx = Number.parseInt(lid.slice("route-alt-hit-".length), 10)
+          if (!Number.isFinite(idx)) return
+          onSelectAlternativeRoute(idx)
+        }}
+        onMouseMove={(e) => {
+          const map = mapRef.current?.getMap()
+          if (!map || interactiveAltLayerIds.length === 0 || !onSelectAlternativeRoute) {
+            return
+          }
+          const ready = existingLayerIds(map, interactiveAltLayerIds)
+          if (ready.length === 0) {
+            map.getCanvas().style.cursor = ""
+            return
+          }
+          let feats: mapboxgl.MapboxGeoJSONFeature[]
+          try {
+            feats = map.queryRenderedFeatures(e.point, { layers: ready })
+          } catch {
+            map.getCanvas().style.cursor = ""
+            return
+          }
+          map.getCanvas().style.cursor = feats.length > 0 ? "pointer" : "grab"
+        }}
+        onMouseLeave={() => {
+          const map = mapRef.current?.getMap()
+          if (map) map.getCanvas().style.cursor = ""
+        }}
       >
         <NavigationControl position="top-right" showCompass showZoom />
 
@@ -129,6 +191,40 @@ export function MapView({
             />
           </Source>
         ) : null}
+
+        {alternativeRouteGeometries.map((feat, i) => (
+          <Source key={`route-alt-src-${i}`} id={`route-alt-${i}`} type="geojson" data={feat}>
+            <Layer
+              id={`route-alt-line-${i}`}
+              type="line"
+              layout={{
+                "line-cap": "round",
+                "line-join": "round",
+              }}
+              paint={{
+                "line-color": i === 0 ? "#a78bfa" : "#818cf8",
+                "line-width": 3,
+                "line-opacity": 0.72,
+                "line-dasharray": [2, 3],
+              }}
+            />
+            {onSelectAlternativeRoute ? (
+              <Layer
+                id={`route-alt-hit-${i}`}
+                type="line"
+                layout={{
+                  "line-cap": "round",
+                  "line-join": "round",
+                }}
+                paint={{
+                  "line-color": "#000",
+                  "line-opacity": 0,
+                  "line-width": 20,
+                }}
+              />
+            ) : null}
+          </Source>
+        ))}
 
         {startPoint ? (
           <Marker longitude={startPoint.lng} latitude={startPoint.lat} anchor="center">

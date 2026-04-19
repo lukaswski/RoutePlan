@@ -1,6 +1,7 @@
 "use client"
 
 import { Plus, X } from "lucide-react"
+import * as React from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,6 +19,8 @@ type RouteFormProps = {
   origin: string
   destination: string
   waypoints: WaypointField[]
+  showAlternativeRoutes: boolean
+  onShowAlternativeRoutesChange: (checked: boolean) => void
   onOriginChange: (v: string) => void
   onDestinationChange: (v: string) => void
   onWaypointChange: (id: string, value: string) => void
@@ -36,6 +39,8 @@ export function RouteForm({
   origin,
   destination,
   waypoints,
+  showAlternativeRoutes,
+  onShowAlternativeRoutesChange,
   onOriginChange,
   onDestinationChange,
   onWaypointChange,
@@ -49,6 +54,21 @@ export function RouteForm({
   summaryDuration,
 }: RouteFormProps) {
   const hasSummary = Boolean(summaryDistance && summaryDuration)
+  const prevWpCount = React.useRef(waypoints.length)
+
+  React.useEffect(() => {
+    if (waypoints.length > prevWpCount.current && waypoints.length > 0) {
+      const last = waypoints[waypoints.length - 1]
+      requestAnimationFrame(() => {
+        const el = document.getElementById(
+          `waypoint-input-${last?.id}`
+        ) as HTMLInputElement | null
+        el?.focus({ preventScroll: false })
+        el?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      })
+    }
+    prevWpCount.current = waypoints.length
+  }, [waypoints])
 
   return (
     <Card
@@ -80,8 +100,9 @@ export function RouteForm({
             />
 
             {waypoints.map((wp, index) => (
-              <div key={wp.id} className="flex gap-1.5">
+              <div key={wp.id} className="waypoint-row-enter flex gap-1.5">
                 <Input
+                  id={`waypoint-input-${wp.id}`}
                   aria-label={`Punkt pośredni ${index + 1}`}
                   autoComplete="street-address"
                   className="app-input-soft h-9 min-w-0 flex-1 rounded-lg border-white/10 !bg-transparent text-[13px] placeholder:text-muted-foreground/80"
@@ -155,6 +176,44 @@ export function RouteForm({
             </Button>
           </div>
         </form>
+
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-2">
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-medium tracking-[0.02em] text-muted-foreground/70">
+                Trasy alternatywne
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showAlternativeRoutes}
+              aria-label="Pokaż trasy alternatywne"
+              disabled={loading}
+              className={cn(
+                "relative inline-flex h-[20px] w-[36px] shrink-0 items-center rounded-full p-[2px] transition-colors duration-200 ease-out",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.58_0.21_252)]/45 focus-visible:ring-offset-1 focus-visible:ring-offset-[oklch(0.17_0.024_262)]",
+                showAlternativeRoutes
+                  ? "bg-gradient-to-r from-[oklch(0.5_0.2_255)] to-[oklch(0.58_0.21_252)] shadow-[inset_0_1px_0_oklch(1_0_0_/12%)]"
+                  : "bg-white/[0.11]",
+                loading ? "cursor-not-allowed opacity-45" : "cursor-pointer active:opacity-95"
+              )}
+              onClick={() => {
+                if (loading) return
+                onShowAlternativeRoutesChange(!showAlternativeRoutes)
+              }}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "pointer-events-none block size-4 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.26)] ring-1 ring-black/5 transition-transform duration-300 ease-[cubic-bezier(0.34,1.45,0.64,1)]",
+                  showAlternativeRoutes ? "translate-x-[16px]" : "translate-x-0"
+                )}
+              />
+            </button>
+          </div>
+        </div>
+
         {hasSummary ? (
           <>
             <Separator />

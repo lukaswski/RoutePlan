@@ -21,6 +21,8 @@ const MapView = dynamic(
 type MapCanvasProps = {
   className?: string
   routeGeometry: Feature<LineString> | null
+  alternativeRouteGeometries: Feature<LineString>[]
+  onSelectAlternativeRoute?: (alternativeIndex: number) => void
   startPoint: { lng: number; lat: number } | null
   endPoint: { lng: number; lat: number } | null
   viaPoints: { lng: number; lat: number }[]
@@ -29,6 +31,8 @@ type MapCanvasProps = {
 export function MapCanvas({
   className,
   routeGeometry,
+  alternativeRouteGeometries,
+  onSelectAlternativeRoute,
   startPoint,
   endPoint,
   viaPoints,
@@ -44,6 +48,8 @@ export function MapCanvas({
         <MapView
           className="h-full w-full"
           routeGeometry={routeGeometry}
+          alternativeRouteGeometries={alternativeRouteGeometries}
+          onSelectAlternativeRoute={onSelectAlternativeRoute}
           startPoint={startPoint}
           endPoint={endPoint}
           viaPoints={viaPoints}
