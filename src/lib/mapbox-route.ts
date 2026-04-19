@@ -58,9 +58,50 @@ export async function geocodeForward(query: string): Promise<GeocodeHit | null> 
   }
 }
 
+/**
+ * Reverse geocoding — adres z współrzędnych (Mapbox Geocoding API).
+ */
+export async function geocodeReverse(
+  lng: number,
+  lat: number,
+  opts?: { signal?: AbortSignal }
+): Promise<GeocodeHit | null> {
+  const token = getMapboxAccessToken()
+  if (!token?.trim()) {
+    throw new Error("Brak tokenu Mapbox (NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN).")
+  }
+
+  const url = new URL(
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(`${lng},${lat}`)}.json`
+  )
+  url.searchParams.set("access_token", token)
+  url.searchParams.set("limit", "1")
+  url.searchParams.set("language", "pl")
+  url.searchParams.set("country", "pl")
+
+  const res = await fetch(url.toString(), { signal: opts?.signal })
+  if (!res.ok) {
+    throw new Error(`Odwrotne geokodowanie nie powiodło się (HTTP ${res.status}).`)
+  }
+
+  const data = (await res.json()) as {
+    features?: { center?: [number, number]; place_name?: string }[]
+  }
+  const f = data.features?.[0]
+  if (!f?.center || f.center.length < 2) return null
+
+  return {
+    lng: f.center[0],
+    lat: f.center[1],
+    placeName: f.place_name ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+  }
+}
+
 export type FetchDrivingRouteOptions = {
   /** Mapbox zwraca do 2 alternatyw tylko dla trasy A→B (dokładnie 2 punkty). */
   alternatives?: boolean
+  /** Preferuj trasy lokalne: `exclude=motorway,toll,ferry` w Directions API. */
+  preferUnpaved?: boolean
 }
 
 /**
@@ -86,6 +127,10 @@ export async function fetchDrivingRoute(
   const wantAlternatives = Boolean(options?.alternatives && points.length === 2)
   if (wantAlternatives) {
     url.searchParams.set("alternatives", "true")
+  }
+
+  if (options?.preferUnpaved) {
+    url.searchParams.set("exclude", "motorway,toll,ferry")
   }
 
   const res = await fetch(url.toString())

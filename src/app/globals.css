@@ -46,6 +46,18 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --color-neon-01: var(--neon-01-core);
+  --color-neon-02: var(--neon-02-core);
+  --color-neon-03: var(--neon-03-core);
+  --color-neon-04: var(--neon-04-core);
+  --color-neon-05: var(--neon-05-core);
+  --color-neon-06: var(--neon-06-core);
+  --color-neon-07: var(--neon-07-core);
+  --color-neon-08: var(--neon-08-core);
+  --color-neon-09: var(--neon-09-core);
+  --color-neon-10: var(--neon-10-core);
+  --color-neon-11: var(--neon-11-core);
+  --color-neon-12: var(--neon-12-core);
 }
 
 :root {
@@ -91,7 +103,7 @@
   --card-foreground: oklch(0.97 0.008 264);
   --popover: oklch(0.19 0.026 262);
   --popover-foreground: oklch(0.97 0.008 264);
-  --primary: oklch(0.58 0.21 252);
+  --primary: oklch(0.56 0.22 262);
   --primary-foreground: oklch(0.995 0 0);
   --secondary: oklch(0.22 0.028 262);
   --secondary-foreground: oklch(0.97 0.008 264);
@@ -102,7 +114,7 @@
   --destructive: oklch(0.62 0.2 25);
   --border: oklch(1 0 0 / 9%);
   --input: oklch(1 0 0 / 11%);
-  --ring: oklch(0.58 0.21 252);
+  --ring: oklch(0.56 0.22 262);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -110,12 +122,77 @@
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.17 0.026 262);
   --sidebar-foreground: oklch(0.97 0.008 264);
-  --sidebar-primary: oklch(0.58 0.21 252);
+  --sidebar-primary: oklch(0.56 0.22 262);
   --sidebar-primary-foreground: oklch(0.995 0 0);
   --sidebar-accent: oklch(0.24 0.03 262);
   --sidebar-accent-foreground: oklch(0.97 0.008 264);
   --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.58 0.21 252);
+  --sidebar-ring: oklch(0.56 0.22 262);
+
+  /*
+   * Neon accents — gradient + poświata (jak CTA).
+   * mapCore / mapGlow: zsynchronizuj z src/lib/neon-accents.ts (Mapbox, canvas).
+   */
+  --neon-01-bright: oklch(0.595 0.208 258);
+  --neon-01-mid: oklch(0.54 0.218 262);
+  --neon-01-deep: oklch(0.478 0.19 266);
+  --neon-01-core: oklch(0.555 0.22 262);
+  --neon-01-glow: oklch(0.52 0.21 262 / 0.44);
+  --neon-02-bright: oklch(0.61 0.195 234);
+  --neon-02-mid: oklch(0.555 0.205 238);
+  --neon-02-deep: oklch(0.49 0.175 246);
+  --neon-02-core: oklch(0.57 0.2 238);
+  --neon-02-glow: oklch(0.56 0.19 238 / 0.42);
+  --neon-03-bright: oklch(0.61 0.195 220);
+  --neon-03-mid: oklch(0.555 0.205 224);
+  --neon-03-deep: oklch(0.49 0.175 232);
+  --neon-03-core: oklch(0.57 0.2 224);
+  --neon-03-glow: oklch(0.56 0.19 224 / 0.42);
+  --neon-04-bright: oklch(0.61 0.195 204);
+  --neon-04-mid: oklch(0.555 0.205 208);
+  --neon-04-deep: oklch(0.49 0.175 216);
+  --neon-04-core: oklch(0.57 0.2 208);
+  --neon-04-glow: oklch(0.56 0.19 208 / 0.42);
+  --neon-05-bright: oklch(0.61 0.195 186);
+  --neon-05-mid: oklch(0.555 0.205 190);
+  --neon-05-deep: oklch(0.49 0.175 198);
+  --neon-05-core: oklch(0.57 0.2 190);
+  --neon-05-glow: oklch(0.56 0.19 190 / 0.42);
+  --neon-06-bright: oklch(0.61 0.195 168);
+  --neon-06-mid: oklch(0.555 0.205 172);
+  --neon-06-deep: oklch(0.49 0.175 180);
+  --neon-06-core: oklch(0.57 0.2 172);
+  --neon-06-glow: oklch(0.56 0.19 172 / 0.42);
+  --neon-07-bright: oklch(0.61 0.195 148);
+  --neon-07-mid: oklch(0.555 0.205 152);
+  --neon-07-deep: oklch(0.49 0.175 160);
+  --neon-07-core: oklch(0.57 0.2 152);
+  --neon-07-glow: oklch(0.56 0.19 152 / 0.42);
+  --neon-08-bright: oklch(0.61 0.195 124);
+  --neon-08-mid: oklch(0.555 0.205 128);
+  --neon-08-deep: oklch(0.49 0.175 136);
+  --neon-08-core: oklch(0.57 0.2 128);
+  --neon-08-glow: oklch(0.56 0.19 128 / 0.42);
+  --neon-09-bright: oklch(0.61 0.195 98);
+  --neon-09-mid: oklch(0.555 0.205 102);
+  --neon-09-deep: oklch(0.49 0.175 110);
+  --neon-09-core: oklch(0.57 0.2 102);
+  --neon-09-glow: oklch(0.56 0.19 102 / 0.42);
+  --neon-10-bright: oklch(0.61 0.195 68);
+  --neon-10-mid: oklch(0.555 0.205 72);
+  --neon-10-deep: oklch(0.49 0.175 80);
+  --neon-10-core: oklch(0.57 0.2 72);
+  --neon-10-glow: oklch(0.56 0.19 72 / 0.42);
+  --neon-11-bright: oklch(0.61 0.195 38);
+  --neon-11-mid: oklch(0.555 0.205 42);
+  --neon-11-deep: oklch(0.49 0.175 50);
+  --neon-11-core: oklch(0.57 0.2 42);
+  --neon-11-glow: oklch(0.56 0.19 42 / 0.42);
+  --neon-12-bright: oklch(0.61 0.195 304);
+  --neon-12-mid: oklch(0.555 0.205 308);
+  --neon-12-deep: oklch(0.49 0.175 316);
+  --neon-12-core: oklch(0.57 0.2 308);
+  --neon-12-glow: oklch(0.56 0.19 308 / 0.42);
 }
 
 @layer base {
@@ -200,23 +277,203 @@
     background-color: transparent !important;
     background-image: linear-gradient(
       118deg,
-      oklch(0.62 0.2 250) 0%,
-      oklch(0.54 0.19 258) 52%,
-      oklch(0.5 0.17 268) 100%
+      var(--neon-01-bright) 0%,
+      var(--neon-01-mid) 52%,
+      var(--neon-01-deep) 100%
     );
     box-shadow:
       0 1px 0 oklch(1 0 0 / 14%),
-      inset 0 1px 0 oklch(1 0 0 / 8%);
+      inset 0 1px 0 oklch(1 0 0 / 8%),
+      0 0 34px var(--neon-01-glow);
   }
 
   .app-primary-gradient:hover {
     background-color: transparent !important;
     background-image: linear-gradient(
       118deg,
-      oklch(0.64 0.2 250) 0%,
-      oklch(0.56 0.19 258) 52%,
-      oklch(0.52 0.17 268) 100%
+      oklch(0.62 0.21 256) 0%,
+      oklch(0.56 0.22 262) 52%,
+      oklch(0.51 0.195 266) 100%
     );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 16%),
+      inset 0 1px 0 oklch(1 0 0 / 10%),
+      0 0 40px var(--neon-01-glow);
+  }
+
+  /* Pill / badge: gradient + neon halo — użyj z tekstem jasnym (np. text-white). */
+  .app-neon-pill-01 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-01-bright) 0%,
+      var(--neon-01-mid) 52%,
+      var(--neon-01-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-01-glow);
+  }
+  .app-neon-pill-02 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-02-bright) 0%,
+      var(--neon-02-mid) 52%,
+      var(--neon-02-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-02-glow);
+  }
+  .app-neon-pill-03 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-03-bright) 0%,
+      var(--neon-03-mid) 52%,
+      var(--neon-03-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-03-glow);
+  }
+  .app-neon-pill-04 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-04-bright) 0%,
+      var(--neon-04-mid) 52%,
+      var(--neon-04-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-04-glow);
+  }
+  .app-neon-pill-05 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-05-bright) 0%,
+      var(--neon-05-mid) 52%,
+      var(--neon-05-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-05-glow);
+  }
+  .app-neon-pill-06 {
+    color: oklch(0.145 0.02 262);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-06-bright) 0%,
+      var(--neon-06-mid) 52%,
+      var(--neon-06-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-06-glow);
+  }
+  .app-neon-pill-07 {
+    color: oklch(0.145 0.02 262);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-07-bright) 0%,
+      var(--neon-07-mid) 52%,
+      var(--neon-07-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-07-glow);
+  }
+  .app-neon-pill-08 {
+    color: oklch(0.145 0.02 262);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-08-bright) 0%,
+      var(--neon-08-mid) 52%,
+      var(--neon-08-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-08-glow);
+  }
+  .app-neon-pill-09 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-09-bright) 0%,
+      var(--neon-09-mid) 52%,
+      var(--neon-09-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-09-glow);
+  }
+  .app-neon-pill-10 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-10-bright) 0%,
+      var(--neon-10-mid) 52%,
+      var(--neon-10-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-10-glow);
+  }
+  .app-neon-pill-11 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-11-bright) 0%,
+      var(--neon-11-mid) 52%,
+      var(--neon-11-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-11-glow);
+  }
+  .app-neon-pill-12 {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-12-bright) 0%,
+      var(--neon-12-mid) 52%,
+      var(--neon-12-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 12%),
+      inset 0 1px 0 oklch(1 0 0 / 7%),
+      0 0 32px var(--neon-12-glow);
+  }
+
+  /* Delikatnie jaśniej przy hover (wszystkie app-neon-pill-*). */
+  [class*="app-neon-pill-"]:hover {
+    filter: brightness(1.06);
   }
 
   .app-outline-soft {

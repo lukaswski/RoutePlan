@@ -3,18 +3,36 @@
 import "mapbox-gl/dist/mapbox-gl.css"
 
 import type { Feature, LineString } from "geojson"
+import { X } from "lucide-react"
 import mapboxgl from "mapbox-gl"
 import { useEffect, useMemo, useRef } from "react"
 import Map, {
   Layer,
   Marker,
-  NavigationControl,
+  Popup,
   Source,
   type MapRef,
 } from "react-map-gl/mapbox"
 
+import { Button } from "@/components/ui/button"
 import { getMapboxAccessToken } from "@/lib/mapbox"
+import { neonAccentByIndex } from "@/lib/neon-accents"
 import { cn } from "@/lib/utils"
+
+const ROUTE_NEON = neonAccentByIndex(1)
+/** Trasy alternatywne: szarawy odcień, lekko różne dwie warianty gdy Mapbox zwróci 2. */
+const ALT_ROUTE_STYLES = [
+  { core: "#a1a1aa", glow: "#71717a" },
+  { core: "#94a3b8", glow: "#64748b" },
+] as const
+
+export type MapClickPickState = {
+  lng: number
+  lat: number
+  placeName: string | null
+  loading: boolean
+  error?: string | null
+}
 
 export type MapViewProps = {
   className?: string
@@ -23,6 +41,11 @@ export type MapViewProps = {
   alternativeRouteGeometries: Feature<LineString>[]
   /** Kliknięcie przerywanej trasy — zamiana z trasą główną (indeks zwrócony przez Mapbox). */
   onSelectAlternativeRoute?: (alternativeIndex: number) => void
+  /** Kliknięcie w tło mapy (po sprawdzeniu warstw alternatyw). */
+  onMapBackgroundClick?: (coords: { lng: number; lat: number }) => void
+  mapClickPick?: MapClickPickState | null
+  onCloseMapClickPick?: () => void
+  onAddMapClickPickAsWaypoint?: () => void
   startPoint: { lng: number; lat: number } | null
   endPoint: { lng: number; lat: number } | null
   /** Punkty pośrednie (przystanki między startem a celem). */
@@ -41,11 +64,55 @@ function existingLayerIds(map: mapboxgl.Map, ids: string[]): string[] {
   return ids.filter((id) => Boolean(map.getLayer(id)))
 }
 
+/** Indeks trasy alternatywnej z id warstwy (hit / widoczna linia / poświata). */
+function alternativeRouteIndexFromLayerId(layerId: string | undefined): number | null {
+  if (!layerId) return null
+  const m = /^route-alt-(?:hit|line|glow)-(\d+)$/.exec(layerId)
+  if (!m?.[1]) return null
+  const idx = Number.parseInt(m[1], 10)
+  return Number.isFinite(idx) ? idx : null
+}
+
+function pickAlternativeRouteIndexAtPoint(
+  map: mapboxgl.Map,
+  point: mapboxgl.Point,
+  queryLayerIds: string[],
+  altCount: number
+): number | null {
+  const ready = existingLayerIds(map, queryLayerIds)
+  if (ready.length > 0) {
+    try {
+      const feats = map.queryRenderedFeatures(point, { layers: ready })
+      for (const f of feats) {
+        const idx = alternativeRouteIndexFromLayerId(f.layer?.id)
+        if (idx !== null && idx >= 0 && idx < altCount) return idx
+      }
+    } catch {
+      /* spróbuj bez filtra warstw */
+    }
+  }
+
+  try {
+    const all = map.queryRenderedFeatures(point)
+    for (const f of all) {
+      const idx = alternativeRouteIndexFromLayerId(f.layer?.id)
+      if (idx !== null && idx >= 0 && idx < altCount) return idx
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
 export function MapView({
   className,
   routeGeometry,
   alternativeRouteGeometries,
   onSelectAlternativeRoute,
+  onMapBackgroundClick,
+  mapClickPick,
+  onCloseMapClickPick,
+  onAddMapClickPickAsWaypoint,
   startPoint,
   endPoint,
   viaPoints,
@@ -53,10 +120,17 @@ export function MapView({
   const token = getMapboxAccessToken()
   const mapRef = useRef<MapRef>(null)
 
-  const interactiveAltLayerIds = useMemo(
-    () => alternativeRouteGeometries.map((_, i) => `route-alt-hit-${i}`),
-    [alternativeRouteGeometries.length]
-  )
+  /** Klik jest zwykle na widocznej linii (`route-alt-line-*`), nie tylko na niewidocznym obszarze hit. */
+  const alternativeRouteQueryLayerIds = useMemo(() => {
+    const ids: string[] = []
+    for (let i = 0; i < alternativeRouteGeometries.length; i++) {
+      ids.push(`route-alt-glow-${i}`, `route-alt-line-${i}`)
+      if (onSelectAlternativeRoute) {
+        ids.push(`route-alt-hit-${i}`)
+      }
+    }
+    return ids
+  }, [alternativeRouteGeometries.length, onSelectAlternativeRoute])
 
   useEffect(() => {
     const map = mapRef.current?.getMap()
@@ -115,31 +189,33 @@ export function MapView({
         initialViewState={INITIAL_VIEW_STATE}
         style={{ width: "100%", height: "100%" }}
         mapStyle="mapbox://styles/mapbox/dark-v11"
-        attributionControl
+        attributionControl={false}
+        logoPosition="bottom-left"
         onClick={(e) => {
-          if (!onSelectAlternativeRoute || interactiveAltLayerIds.length === 0) return
           const map = mapRef.current?.getMap()
           if (!map) return
-          const ready = existingLayerIds(map, interactiveAltLayerIds)
-          if (ready.length === 0) return
-          let feats: mapboxgl.MapboxGeoJSONFeature[]
-          try {
-            feats = map.queryRenderedFeatures(e.point, { layers: ready })
-          } catch {
-            return
+
+          if (onSelectAlternativeRoute && alternativeRouteGeometries.length > 0) {
+            const picked = pickAlternativeRouteIndexAtPoint(
+              map,
+              e.point,
+              alternativeRouteQueryLayerIds,
+              alternativeRouteGeometries.length
+            )
+            if (picked !== null) {
+              onSelectAlternativeRoute(picked)
+              return
+            }
           }
-          const lid = feats[0]?.layer?.id
-          if (!lid?.startsWith("route-alt-hit-")) return
-          const idx = Number.parseInt(lid.slice("route-alt-hit-".length), 10)
-          if (!Number.isFinite(idx)) return
-          onSelectAlternativeRoute(idx)
+
+          onMapBackgroundClick?.({ lng: e.lngLat.lng, lat: e.lngLat.lat })
         }}
         onMouseMove={(e) => {
           const map = mapRef.current?.getMap()
-          if (!map || interactiveAltLayerIds.length === 0 || !onSelectAlternativeRoute) {
+          if (!map || alternativeRouteQueryLayerIds.length === 0 || !onSelectAlternativeRoute) {
             return
           }
-          const ready = existingLayerIds(map, interactiveAltLayerIds)
+          const ready = existingLayerIds(map, alternativeRouteQueryLayerIds)
           if (ready.length === 0) {
             map.getCanvas().style.cursor = ""
             return
@@ -158,8 +234,6 @@ export function MapView({
           if (map) map.getCanvas().style.cursor = ""
         }}
       >
-        <NavigationControl position="top-right" showCompass showZoom />
-
         {routeGeometry ? (
           <Source id="route" type="geojson" data={routeGeometry}>
             <Layer
@@ -170,10 +244,10 @@ export function MapView({
                 "line-join": "round",
               }}
               paint={{
-                "line-color": "#3b82f6",
+                "line-color": ROUTE_NEON.mapGlow,
                 "line-width": 12,
-                "line-opacity": 0.22,
-                "line-blur": 2,
+                "line-opacity": 0.28,
+                "line-blur": 3,
               }}
             />
             <Layer
@@ -184,47 +258,64 @@ export function MapView({
                 "line-join": "round",
               }}
               paint={{
-                "line-color": "#93c5fd",
+                "line-color": ROUTE_NEON.mapCore,
                 "line-width": 4,
-                "line-opacity": 0.95,
+                "line-opacity": 0.96,
               }}
             />
           </Source>
         ) : null}
 
-        {alternativeRouteGeometries.map((feat, i) => (
-          <Source key={`route-alt-src-${i}`} id={`route-alt-${i}`} type="geojson" data={feat}>
-            <Layer
-              id={`route-alt-line-${i}`}
-              type="line"
-              layout={{
-                "line-cap": "round",
-                "line-join": "round",
-              }}
-              paint={{
-                "line-color": i === 0 ? "#a78bfa" : "#818cf8",
-                "line-width": 3,
-                "line-opacity": 0.72,
-                "line-dasharray": [2, 3],
-              }}
-            />
-            {onSelectAlternativeRoute ? (
+        {alternativeRouteGeometries.map((feat, i) => {
+          const altStyle = ALT_ROUTE_STYLES[i % ALT_ROUTE_STYLES.length]!
+          return (
+            <Source key={`route-alt-src-${i}`} id={`route-alt-${i}`} type="geojson" data={feat}>
               <Layer
-                id={`route-alt-hit-${i}`}
+                id={`route-alt-glow-${i}`}
                 type="line"
                 layout={{
                   "line-cap": "round",
                   "line-join": "round",
                 }}
                 paint={{
-                  "line-color": "#000",
-                  "line-opacity": 0,
-                  "line-width": 20,
+                  "line-color": altStyle.glow,
+                  "line-width": 11,
+                  "line-opacity": 0.2,
+                  "line-blur": 2,
                 }}
               />
-            ) : null}
-          </Source>
-        ))}
+              <Layer
+                id={`route-alt-line-${i}`}
+                type="line"
+                layout={{
+                  "line-cap": "round",
+                  "line-join": "round",
+                }}
+                paint={{
+                  "line-color": altStyle.core,
+                  "line-width": 5,
+                  "line-opacity": 0.88,
+                  "line-dasharray": i === 0 ? [3, 1.5] : [2, 1.2],
+                }}
+              />
+              {onSelectAlternativeRoute ? (
+                <Layer
+                  id={`route-alt-hit-${i}`}
+                  type="line"
+                  layout={{
+                    "line-cap": "round",
+                    "line-join": "round",
+                  }}
+                  paint={{
+                    "line-color": "#000",
+                    "line-opacity": 0,
+                    "line-width": 20,
+                  }}
+                />
+              ) : null}
+            </Source>
+          )
+        })}
 
         {startPoint ? (
           <Marker longitude={startPoint.lng} latitude={startPoint.lat} anchor="center">
@@ -259,6 +350,60 @@ export function MapView({
               title="Cel"
             />
           </Marker>
+        ) : null}
+
+        {mapClickPick ? (
+          <Popup
+            longitude={mapClickPick.lng}
+            latitude={mapClickPick.lat}
+            anchor="bottom"
+            offset={16}
+            closeButton={false}
+            closeOnClick={false}
+            maxWidth="min(320px, 92vw)"
+            className="[&_.mapboxgl-popup-content]:!border-0 [&_.mapboxgl-popup-content]:!bg-transparent [&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!shadow-none [&_.mapboxgl-popup-tip]:!border-t-[oklch(0.2_0.02_262)]"
+          >
+            <div
+              className="relative min-w-[220px] max-w-[min(280px,88vw)] overflow-hidden rounded-xl border border-white/[0.12] bg-[oklch(0.17_0.024_262)]/95 px-3.5 pb-3 pt-2.5 shadow-lg ring-1 ring-black/20 backdrop-blur-md"
+              onClick={(ev) => ev.stopPropagation()}
+              onKeyDown={(ev) => ev.stopPropagation()}
+              role="dialog"
+              aria-label="Miejsce z mapy"
+            >
+              {onCloseMapClickPick ? (
+                <button
+                  type="button"
+                  className="absolute right-1.5 top-1.5 inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground/80 transition-colors hover:bg-white/[0.08] hover:text-foreground"
+                  aria-label="Zamknij"
+                  onClick={onCloseMapClickPick}
+                >
+                  <X className="size-3.5" strokeWidth={2} />
+                </button>
+              ) : null}
+              <p className="pr-8 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/85">
+                Wybrane miejsce
+              </p>
+              {mapClickPick.loading ? (
+                <p className="mt-1.5 text-[13px] text-muted-foreground">Szukanie adresu…</p>
+              ) : mapClickPick.error ? (
+                <p className="mt-1.5 text-[13px] text-red-400/95">{mapClickPick.error}</p>
+              ) : (
+                <p className="mt-1.5 line-clamp-4 text-[13px] leading-snug text-foreground">
+                  {mapClickPick.placeName}
+                </p>
+              )}
+              {!mapClickPick.loading && mapClickPick.placeName && onAddMapClickPickAsWaypoint ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-3 h-8 w-full !rounded-lg border-0 bg-gradient-to-r from-[oklch(0.48_0.21_258)] to-[oklch(0.56_0.22_262)] text-[12px] font-medium text-white shadow-inner"
+                  onClick={onAddMapClickPickAsWaypoint}
+                >
+                  Dodaj jako punkt pośredni
+                </Button>
+              ) : null}
+            </div>
+          </Popup>
         ) : null}
       </Map>
     </div>

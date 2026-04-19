@@ -3,6 +3,7 @@
 import type { Feature, LineString } from "geojson"
 import dynamic from "next/dynamic"
 
+import type { MapClickPickState } from "@/components/map/MapView"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
@@ -23,6 +24,10 @@ type MapCanvasProps = {
   routeGeometry: Feature<LineString> | null
   alternativeRouteGeometries: Feature<LineString>[]
   onSelectAlternativeRoute?: (alternativeIndex: number) => void
+  mapClickPick?: MapClickPickState | null
+  onCloseMapClickPick?: () => void
+  onAddMapClickPickAsWaypoint?: () => void
+  onMapBackgroundClick?: (coords: { lng: number; lat: number }) => void
   startPoint: { lng: number; lat: number } | null
   endPoint: { lng: number; lat: number } | null
   viaPoints: { lng: number; lat: number }[]
@@ -33,6 +38,10 @@ export function MapCanvas({
   routeGeometry,
   alternativeRouteGeometries,
   onSelectAlternativeRoute,
+  mapClickPick,
+  onCloseMapClickPick,
+  onAddMapClickPickAsWaypoint,
+  onMapBackgroundClick,
   startPoint,
   endPoint,
   viaPoints,
@@ -50,15 +59,41 @@ export function MapCanvas({
           routeGeometry={routeGeometry}
           alternativeRouteGeometries={alternativeRouteGeometries}
           onSelectAlternativeRoute={onSelectAlternativeRoute}
+          mapClickPick={mapClickPick}
+          onCloseMapClickPick={onCloseMapClickPick}
+          onAddMapClickPickAsWaypoint={onAddMapClickPickAsWaypoint}
+          onMapBackgroundClick={onMapBackgroundClick}
           startPoint={startPoint}
           endPoint={endPoint}
           viaPoints={viaPoints}
         />
       </div>
 
-      {/* Gradienty bez pełnego fullscreen — żeby nie zasłaniać NavigationControl (prawy górny róg). */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-28 bg-gradient-to-b from-background/25 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-44 bg-gradient-to-t from-background/30 to-transparent" />
+
+      {/* Atrybucja poza wbudowanym panelem Mapbox — znak Mapbox na canvas musi zostać (regulamin). */}
+      <div className="pointer-events-auto absolute bottom-2 right-2 z-20 max-w-[min(100%,18rem)] rounded-md border border-white/[0.08] bg-background/75 px-2 py-1 text-[9px] leading-snug text-muted-foreground/85 shadow-sm backdrop-blur-sm">
+        <a
+          href="https://www.mapbox.com/about/maps/"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="underline decoration-white/25 underline-offset-2 hover:text-foreground/90"
+        >
+          © Mapbox
+        </a>
+        <span aria-hidden className="mx-1 text-muted-foreground/45">
+          ·
+        </span>
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="underline decoration-white/25 underline-offset-2 hover:text-foreground/90"
+        >
+          © OpenStreetMap
+        </a>
+      </div>
 
       <div className="pointer-events-none relative z-10 flex flex-1 flex-col items-start justify-between p-5">
         <div className="flex items-center gap-2.5">

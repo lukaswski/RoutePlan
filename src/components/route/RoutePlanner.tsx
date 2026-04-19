@@ -3,12 +3,14 @@
 import type { Feature, LineString } from "geojson"
 import * as React from "react"
 
+import type { MapClickPickState } from "@/components/map/MapView"
 import { MapCanvas } from "@/components/map/MapCanvas"
 import { RouteForm, type WaypointField } from "@/components/route/RouteForm"
 import { formatDistanceMeters, formatDurationSeconds } from "@/lib/format-route"
 import {
   fetchDrivingRoute,
   geocodeForward,
+  geocodeReverse,
   type GeocodeHit,
 } from "@/lib/mapbox-route"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +21,7 @@ export function RoutePlanner() {
   const [destination, setDestination] = React.useState("")
   const [waypoints, setWaypoints] = React.useState<WaypointField[]>([])
   const [showAlternativeRoutes, setShowAlternativeRoutes] = React.useState(false)
+  const [preferUnpavedRoutes, setPreferUnpavedRoutes] = React.useState(false)
   const [alternativeGeometries, setAlternativeGeometries] = React.useState<
     Feature<LineString>[]
   >([])
@@ -39,6 +42,8 @@ export function RoutePlanner() {
     lat: number
   } | null>(null)
   const [viaPoints, setViaPoints] = React.useState<{ lng: number; lat: number }[]>([])
+  const [mapClickPick, setMapClickPick] = React.useState<MapClickPickState | null>(null)
+  const reverseGeocodeAbortRef = React.useRef<AbortController | null>(null)
 
   const [summary, setSummary] = React.useState<{
     distanceMeters: number
@@ -55,6 +60,10 @@ export function RoutePlanner() {
   alternativeMetricsRef.current = alternativeMetrics
   const summaryRef = React.useRef(summary)
   summaryRef.current = summary
+  const preferUnpavedRef = React.useRef(preferUnpavedRoutes)
+  preferUnpavedRef.current = preferUnpavedRoutes
+  const showAlternativeRoutesRef = React.useRef(showAlternativeRoutes)
+  showAlternativeRoutesRef.current = showAlternativeRoutes
 
   const handleAddWaypoint = React.useCallback(() => {
     setWaypoints((w) => [...w, { id: crypto.randomUUID(), value: "" }])
@@ -112,6 +121,87 @@ export function RoutePlanner() {
     setSummary(pickedMetric)
   }, [])
 
+  /** Ponowne wyznaczenie trasy z aktualnymi przełącznikami (współrzędne z ostatniego „Wyznacz”). */
+  const refetchStoredRoute = React.useCallback(
+    async (opts: { preferUnpaved: boolean; alternatives: boolean }) => {
+      const coords = plannedCoordsRef.current
+      if (!coords || coords.length < 2) return
+
+      setError(null)
+      setLoading(true)
+      try {
+        if (coords.length === 2) {
+          const route = await fetchDrivingRoute(coords, {
+            alternatives: opts.alternatives,
+            preferUnpaved: opts.preferUnpaved,
+          })
+          if (!route) {
+            setError("Nie udało się wyznaczyć trasy między tymi punktami.")
+            return
+          }
+          setRouteGeometry(route.geometry)
+          setAlternativeGeometries(route.alternativeGeometries ?? [])
+          setAlternativeMetrics(route.alternativeMetrics ?? [])
+          setSummary({
+            distanceMeters: route.distanceMeters,
+            durationSeconds: route.durationSeconds,
+          })
+        } else {
+          const route = await fetchDrivingRoute(coords, {
+            alternatives: false,
+            preferUnpaved: opts.preferUnpaved,
+          })
+          if (!route) {
+            setError("Nie udało się wyznaczyć trasy między tymi punktami.")
+            return
+          }
+          setRouteGeometry(route.geometry)
+          setSummary({
+            distanceMeters: route.distanceMeters,
+            durationSeconds: route.durationSeconds,
+          })
+          if (opts.alternatives) {
+            try {
+              const altBundle = await fetchDrivingRoute(
+                [coords[0]!, coords[coords.length - 1]!],
+                {
+                  alternatives: true,
+                  preferUnpaved: opts.preferUnpaved,
+                }
+              )
+              setAlternativeGeometries(altBundle?.alternativeGeometries ?? [])
+              setAlternativeMetrics(altBundle?.alternativeMetrics ?? [])
+            } catch {
+              setAlternativeGeometries([])
+              setAlternativeMetrics([])
+            }
+          } else {
+            setAlternativeGeometries([])
+            setAlternativeMetrics([])
+          }
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Wystąpił nieznany błąd.")
+      } finally {
+        setLoading(false)
+      }
+    },
+    []
+  )
+
+  const handlePreferUnpavedRoutesChange = React.useCallback(
+    async (checked: boolean) => {
+      setPreferUnpavedRoutes(checked)
+      const pts = plannedCoordsRef.current
+      if (!pts || pts.length < 2) return
+      await refetchStoredRoute({
+        preferUnpaved: checked,
+        alternatives: showAlternativeRoutesRef.current,
+      })
+    },
+    [refetchStoredRoute]
+  )
+
   /**
    * Przełącznik = preferencja. Dla A→B: pełne alternatywy w jednym żądaniu. Dla wielu punktów: główna trasa z waypointami,
    * a alternatywy to warianty odcinka start → cel (osobne API), główne podsumowanie = trasa z przystankami.
@@ -133,7 +223,10 @@ export function RoutePlanner() {
     try {
       const endpoints =
         pts.length === 2 ? pts : [pts[0]!, pts[pts.length - 1]!]
-      const res = await fetchDrivingRoute(endpoints, { alternatives: true })
+      const res = await fetchDrivingRoute(endpoints, {
+        alternatives: true,
+        preferUnpaved: preferUnpavedRef.current,
+      })
       setAlternativeGeometries(res?.alternativeGeometries ?? [])
       setAlternativeMetrics(res?.alternativeMetrics ?? [])
     } catch (e) {
@@ -144,10 +237,14 @@ export function RoutePlanner() {
   }, [])
 
   const handleClear = React.useCallback(() => {
+    reverseGeocodeAbortRef.current?.abort()
+    reverseGeocodeAbortRef.current = null
+    setMapClickPick(null)
     setOrigin("")
     setDestination("")
     setWaypoints([])
     setShowAlternativeRoutes(false)
+    setPreferUnpavedRoutes(false)
     setAlternativeGeometries([])
     setAlternativeMetrics([])
     plannedCoordsRef.current = null
@@ -158,6 +255,145 @@ export function RoutePlanner() {
     setSummary(null)
     setError(null)
   }, [])
+
+  const handleMapBackgroundClick = React.useCallback(
+    async (coords: { lng: number; lat: number }) => {
+      reverseGeocodeAbortRef.current?.abort()
+      const ac = new AbortController()
+      reverseGeocodeAbortRef.current = ac
+
+      setMapClickPick({
+        lng: coords.lng,
+        lat: coords.lat,
+        placeName: null,
+        loading: true,
+        error: null,
+      })
+
+      try {
+        const hit = await geocodeReverse(coords.lng, coords.lat, { signal: ac.signal })
+        if (ac.signal.aborted) return
+        if (!hit) {
+          setMapClickPick({
+            lng: coords.lng,
+            lat: coords.lat,
+            placeName: null,
+            loading: false,
+            error: "Nie udało się rozpoznać adresu w tym miejscu.",
+          })
+          return
+        }
+        setMapClickPick({
+          lng: coords.lng,
+          lat: coords.lat,
+          placeName: hit.placeName,
+          loading: false,
+          error: null,
+        })
+      } catch (e) {
+        if (ac.signal.aborted) return
+        if (e instanceof DOMException && e.name === "AbortError") return
+        setMapClickPick({
+          lng: coords.lng,
+          lat: coords.lat,
+          placeName: null,
+          loading: false,
+          error: e instanceof Error ? e.message : "Błąd pobierania adresu.",
+        })
+      }
+    },
+    []
+  )
+
+  const handleCloseMapClickPick = React.useCallback(() => {
+    reverseGeocodeAbortRef.current?.abort()
+    reverseGeocodeAbortRef.current = null
+    setMapClickPick(null)
+  }, [])
+
+  const handleAddMapClickPickAsWaypoint = React.useCallback(async () => {
+    const pick = mapClickPick
+    if (!pick?.placeName || pick.loading) return
+
+    const hit: GeocodeHit = {
+      lng: pick.lng,
+      lat: pick.lat,
+      placeName: pick.placeName,
+    }
+
+    reverseGeocodeAbortRef.current?.abort()
+    reverseGeocodeAbortRef.current = null
+    setMapClickPick(null)
+
+    setWaypoints((w) => [...w, { id: crypto.randomUUID(), value: hit.placeName }])
+
+    const pts = plannedCoordsRef.current
+    if (!pts || pts.length < 2) return
+
+    const newCoords = [...pts.slice(0, -1), { lng: hit.lng, lat: hit.lat }, pts[pts.length - 1]!]
+    plannedCoordsRef.current = newCoords
+
+    setStartPoint(newCoords[0]!)
+    setEndPoint(newCoords[newCoords.length - 1]!)
+    setViaPoints(newCoords.slice(1, -1))
+
+    setLoading(true)
+    setError(null)
+    try {
+      if (newCoords.length === 2) {
+        const route = await fetchDrivingRoute(newCoords, {
+          alternatives: showAlternativeRoutesRef.current,
+          preferUnpaved: preferUnpavedRef.current,
+        })
+        if (!route) {
+          setError("Nie udało się wyznaczyć trasy między tymi punktami.")
+          return
+        }
+        setRouteGeometry(route.geometry)
+        setAlternativeGeometries(route.alternativeGeometries ?? [])
+        setAlternativeMetrics(route.alternativeMetrics ?? [])
+        setSummary({
+          distanceMeters: route.distanceMeters,
+          durationSeconds: route.durationSeconds,
+        })
+      } else {
+        const route = await fetchDrivingRoute(newCoords, {
+          alternatives: false,
+          preferUnpaved: preferUnpavedRef.current,
+        })
+        if (!route) {
+          setError("Nie udało się wyznaczyć trasy między tymi punktami.")
+          return
+        }
+        setRouteGeometry(route.geometry)
+        setSummary({
+          distanceMeters: route.distanceMeters,
+          durationSeconds: route.durationSeconds,
+        })
+        if (showAlternativeRoutesRef.current) {
+          try {
+            const ends = [newCoords[0]!, newCoords[newCoords.length - 1]!]
+            const altBundle = await fetchDrivingRoute(ends, {
+              alternatives: true,
+              preferUnpaved: preferUnpavedRef.current,
+            })
+            setAlternativeGeometries(altBundle?.alternativeGeometries ?? [])
+            setAlternativeMetrics(altBundle?.alternativeMetrics ?? [])
+          } catch {
+            setAlternativeGeometries([])
+            setAlternativeMetrics([])
+          }
+        } else {
+          setAlternativeGeometries([])
+          setAlternativeMetrics([])
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Wystąpił nieznany błąd.")
+    } finally {
+      setLoading(false)
+    }
+  }, [mapClickPick])
 
   const handlePlanRoute = React.useCallback(async () => {
     setError(null)
@@ -221,6 +457,7 @@ export function RoutePlanner() {
       if (coords.length === 2) {
         const route = await fetchDrivingRoute(coords, {
           alternatives: showAlternativeRoutes,
+          preferUnpaved: preferUnpavedRoutes,
         })
 
         if (!route) {
@@ -238,6 +475,7 @@ export function RoutePlanner() {
       } else {
         const route = await fetchDrivingRoute(coords, {
           alternatives: false,
+          preferUnpaved: preferUnpavedRoutes,
         })
 
         if (!route) {
@@ -256,6 +494,7 @@ export function RoutePlanner() {
             const ends = [coords[0]!, coords[coords.length - 1]!]
             const altBundle = await fetchDrivingRoute(ends, {
               alternatives: true,
+              preferUnpaved: preferUnpavedRoutes,
             })
             setAlternativeGeometries(altBundle?.alternativeGeometries ?? [])
             setAlternativeMetrics(altBundle?.alternativeMetrics ?? [])
@@ -273,14 +512,14 @@ export function RoutePlanner() {
     } finally {
       setLoading(false)
     }
-  }, [destination, origin, showAlternativeRoutes, waypoints])
+  }, [destination, origin, preferUnpavedRoutes, showAlternativeRoutes, waypoints])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-background dark:bg-transparent">
       <header className="app-header-surface sticky top-0 z-40 shrink-0 border-b backdrop-blur-md supports-[backdrop-filter]:backdrop-blur-xl">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 px-5 md:h-16 md:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-[oklch(0.58_0.21_252)] to-[oklch(0.45_0.18_262)] shadow-[0_8px_24px_-8px_oklch(0.58_0.21_252_/0.55)] md:size-10">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-[oklch(0.56_0.22_262)] to-[oklch(0.44_0.19_266)] shadow-[0_8px_24px_-8px_oklch(0.56_0.22_262_/0.55)] md:size-10">
               <span className="text-[13px] font-semibold tracking-tight text-white">PT</span>
             </div>
             <div className="flex flex-col gap-0.5 leading-none">
@@ -330,6 +569,10 @@ export function RoutePlanner() {
                 ? handleSelectAlternativeRoute
                 : undefined
             }
+            mapClickPick={mapClickPick}
+            onCloseMapClickPick={handleCloseMapClickPick}
+            onAddMapClickPickAsWaypoint={handleAddMapClickPickAsWaypoint}
+            onMapBackgroundClick={handleMapBackgroundClick}
             startPoint={startPoint}
             endPoint={endPoint}
             viaPoints={viaPoints}
@@ -346,10 +589,12 @@ export function RoutePlanner() {
             onDestinationChange={setDestination}
             onOriginChange={setOrigin}
             onRemoveWaypoint={handleRemoveWaypoint}
+            onPreferUnpavedRoutesChange={handlePreferUnpavedRoutesChange}
             onShowAlternativeRoutesChange={handleShowAlternativeRoutesChange}
             onSubmit={handlePlanRoute}
             onWaypointChange={handleWaypointChange}
             origin={origin}
+            preferUnpavedRoutes={preferUnpavedRoutes}
             showAlternativeRoutes={showAlternativeRoutes}
             summaryDistance={summary ? formatDistanceMeters(summary.distanceMeters) : null}
             summaryDuration={summary ? formatDurationSeconds(summary.durationSeconds) : null}
