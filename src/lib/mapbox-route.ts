@@ -8,6 +8,13 @@ export type GeocodeHit = {
   placeName: string
 }
 
+/** Wynik forward geocode z metadanymi (wielowynikowe wyszukiwanie POI). */
+export type GeocodeFeatureHit = GeocodeHit & {
+  relevance: number
+  /** Id obiektu Mapbox (stabilniejsze niż dedup po współrzędnych). */
+  mapboxId?: string
+}
+
 export type DrivingRouteResult = {
   geometry: Feature<LineString>
   distanceMeters: number
@@ -18,10 +25,46 @@ export type DrivingRouteResult = {
   alternativeMetrics: { distanceMeters: number; durationSeconds: number }[]
 }
 
+export type GeocodeForwardOpts = {
+  /** Preferuj wyniki blisko tego punktu (np. po podpowiedzi LLM). */
+  proximity?: { lng: number; lat: number }
+}
+
+/**
+ * Przybliżony prostokąt wokół punktu (km od środka do rogu ~ sqrt(2)*r).
+ * Format Mapbox Geocoding `bbox`: minLon,minLat,maxLon,maxLat.
+ */
+export function geocodeBboxAroundPoint(
+  lng: number,
+  lat: number,
+  radiusKm: number,
+): string {
+  const r = Math.max(radiusKm, 2)
+  const dLat = r / 111
+  const cosLat = Math.cos((lat * Math.PI) / 180)
+  const dLng = r / (111 * Math.max(cosLat, 0.15))
+  return `${lng - dLng},${lat - dLat},${lng + dLng},${lat + dLat}`
+}
+
+export type GeocodeForwardFeaturesOpts = GeocodeForwardOpts & {
+  /** Domyślnie 8; Mapbox typowo do 10. */
+  limit?: number
+  /**
+   * Domyślnie `poi,address` — samo `poi` często zwraca puste wyniki dla ogólnych haseł.
+   * @see https://docs.mapbox.com/api/search/geocoding/
+   */
+  types?: string
+  /** `minLon,minLat,maxLon,maxLat` — ogranicza wyniki do okolicy (współrzędne WGS84). */
+  bbox?: string
+}
+
 /**
  * Forward geocoding (Mapbox Geocoding API). Uproszczone do pierwszego wyniku, z biasem PL.
  */
-export async function geocodeForward(query: string): Promise<GeocodeHit | null> {
+export async function geocodeForward(
+  query: string,
+  opts?: GeocodeForwardOpts
+): Promise<GeocodeHit | null> {
   const token = getMapboxAccessToken()
   if (!token?.trim()) {
     throw new Error("Brak tokenu Mapbox (NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN).")
@@ -38,7 +81,11 @@ export async function geocodeForward(query: string): Promise<GeocodeHit | null> 
   url.searchParams.set("country", "pl")
   url.searchParams.set("language", "pl")
   url.searchParams.set("types", "place,locality,neighborhood,address,poi")
-  url.searchParams.set("proximity", "19.145,51.919")
+  const px = opts?.proximity
+  url.searchParams.set(
+    "proximity",
+    px ? `${px.lng},${px.lat}` : "19.145,51.919"
+  )
 
   const res = await fetch(url.toString())
   if (!res.ok) {
@@ -56,6 +103,70 @@ export async function geocodeForward(query: string): Promise<GeocodeHit | null> 
     lat: f.center[1],
     placeName: f.place_name ?? q,
   }
+}
+
+/**
+ * Forward geocoding — wiele wyników (np. pod hasła typu „restauracja”, „muzeum” przy `proximity`).
+ */
+export async function geocodeForwardFeatures(
+  query: string,
+  opts?: GeocodeForwardFeaturesOpts,
+): Promise<GeocodeFeatureHit[]> {
+  const token = getMapboxAccessToken()
+  if (!token?.trim()) {
+    throw new Error("Brak tokenu Mapbox (NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN).")
+  }
+
+  const q = query.trim()
+  if (!q) return []
+
+  const limit = Math.min(Math.max(opts?.limit ?? 8, 1), 10)
+  const types = opts?.types ?? "poi,address"
+
+  const url = new URL(
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json`,
+  )
+  url.searchParams.set("access_token", token)
+  url.searchParams.set("limit", String(limit))
+  url.searchParams.set("country", "pl")
+  url.searchParams.set("language", "pl")
+  url.searchParams.set("types", types)
+  const px = opts?.proximity
+  url.searchParams.set(
+    "proximity",
+    px ? `${px.lng},${px.lat}` : "19.145,51.919",
+  )
+  if (opts?.bbox?.trim()) {
+    url.searchParams.set("bbox", opts.bbox.trim())
+  }
+
+  const res = await fetch(url.toString())
+  if (!res.ok) {
+    throw new Error(`Geokodowanie nie powiodło się (HTTP ${res.status}).`)
+  }
+
+  const data = (await res.json()) as {
+    features?: Array<{
+      id?: string
+      center?: [number, number]
+      place_name?: string
+      relevance?: number
+    }>
+  }
+
+  const out: GeocodeFeatureHit[] = []
+  for (const f of data.features ?? []) {
+    if (!f?.center || f.center.length < 2) continue
+    const relevance = typeof f.relevance === "number" ? f.relevance : 0
+    out.push({
+      lng: f.center[0],
+      lat: f.center[1],
+      placeName: f.place_name ?? q,
+      relevance,
+      mapboxId: typeof f.id === "string" ? f.id : undefined,
+    })
+  }
+  return out
 }
 
 /**

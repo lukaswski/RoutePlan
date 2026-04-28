@@ -5,6 +5,7 @@ import * as React from "react"
 
 import type { MapClickPickState } from "@/components/map/MapView"
 import { MapCanvas } from "@/components/map/MapCanvas"
+import { RouteAiCard } from "@/components/route/RouteAiCard"
 import { RouteForm, type WaypointField } from "@/components/route/RouteForm"
 import { formatDistanceMeters, formatDurationSeconds } from "@/lib/format-route"
 import {
@@ -13,6 +14,10 @@ import {
   geocodeReverse,
   type GeocodeHit,
 } from "@/lib/mapbox-route"
+import {
+  POI_SEARCH_CONTEXT_DESTINATION,
+  type WaypointPoiMarker,
+} from "@/lib/waypoint-poi"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
@@ -52,6 +57,15 @@ export function RoutePlanner() {
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
+  /** POI z AI per punkt pośredni (klucz = id pola przystanku). */
+  const [poiByWaypointId, setPoiByWaypointId] = React.useState<
+    Record<string, WaypointPoiMarker[]>
+  >({})
+  const [waypointAiLoadingId, setWaypointAiLoadingId] = React.useState<string | null>(null)
+  const [waypointAiLoadingStatus, setWaypointAiLoadingStatus] = React.useState<string | null>(
+    null
+  )
+
   const routeGeometryRef = React.useRef(routeGeometry)
   routeGeometryRef.current = routeGeometry
   const alternativeGeometriesRef = React.useRef(alternativeGeometries)
@@ -75,6 +89,11 @@ export function RoutePlanner() {
 
   const handleRemoveWaypoint = React.useCallback((id: string) => {
     setWaypoints((rows) => rows.filter((row) => row.id !== id))
+    setPoiByWaypointId((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
   }, [])
 
   const handleSelectAlternativeRoute = React.useCallback((altIndex: number) => {
@@ -236,6 +255,117 @@ export function RoutePlanner() {
     }
   }, [])
 
+  const routeAiRevisionKey = React.useMemo(() => {
+    if (!summary) return null
+    return [
+      summary.distanceMeters,
+      summary.durationSeconds,
+      origin,
+      destination,
+      ...waypoints.map((w) => w.value),
+    ].join("|")
+  }, [destination, origin, summary, waypoints])
+
+  const waypointPoisOnMap = React.useMemo(() => {
+    const list: WaypointPoiMarker[] = []
+    for (const arr of Object.values(poiByWaypointId)) list.push(...arr)
+    return list
+  }, [poiByWaypointId])
+
+  const handleWaypointPoiSearch = React.useCallback(
+    async (
+      waypointId: string,
+      opts: { restaurants: boolean; sights: boolean; parking: boolean }
+    ) => {
+      let coord: { lng: number; lat: number } | undefined
+      let placeName = ""
+
+      if (waypointId === POI_SEARCH_CONTEXT_DESTINATION) {
+        coord = endPoint ?? undefined
+        placeName = destination.trim()
+      } else {
+        const idx = waypoints.findIndex((w) => w.id === waypointId)
+        coord = idx >= 0 ? viaPoints[idx] : undefined
+        placeName = idx >= 0 ? waypoints[idx]?.value?.trim() ?? "" : ""
+      }
+
+      if (!coord) {
+        setError(
+          waypointId === POI_SEARCH_CONTEXT_DESTINATION
+            ? "Brak pozycji celu na mapie — wyznacz trasę ponownie."
+            : "Brak pozycji przystanku na mapie — wyznacz trasę ponownie."
+        )
+        return
+      }
+
+      setWaypointAiLoadingId(waypointId)
+      setWaypointAiLoadingStatus("Przygotowuję wyszukiwanie (AI)…")
+      setError(null)
+      try {
+        const resSuggest = await fetch("/api/ai/waypoint-suggest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lng: coord.lng,
+            lat: coord.lat,
+            placeName,
+            restaurants: opts.restaurants,
+            sights: opts.sights,
+            parking: opts.parking,
+          }),
+        })
+        const dataSuggest = (await resSuggest.json()) as {
+          searchPlan?: unknown
+          error?: string
+        }
+        if (!resSuggest.ok) {
+          setError(dataSuggest.error ?? "Nie udało się przygotować haseł wyszukiwania.")
+          return
+        }
+
+        setWaypointAiLoadingStatus("Szukam miejsc w Mapbox…")
+        const resMap = await fetch("/api/geo/waypoint-pois-resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            searchPlan: dataSuggest.searchPlan ?? {
+              restaurant: [],
+              sightseeing: [],
+              parking: [],
+            },
+            lng: coord.lng,
+            lat: coord.lat,
+            placeName,
+            restaurants: opts.restaurants,
+            sights: opts.sights,
+            parking: opts.parking,
+          }),
+        })
+        const dataMap = (await resMap.json()) as { places?: WaypointPoiMarker[]; error?: string }
+        if (!resMap.ok) {
+          setError(dataMap.error ?? "Nie udało się umieścić miejsc na mapie.")
+          return
+        }
+        const list = dataMap.places ?? []
+        setPoiByWaypointId((prev) => ({
+          ...prev,
+          [waypointId]: list,
+        }))
+        if (list.length === 0) {
+          setError(
+            "Brak punktów w okolicy (~10 km) — Mapbox nie znalazł POI przy tych hasłach. Uzupełnij przystanek nazwą miejscowości i spróbuj ponownie."
+          )
+        }
+      } catch {
+        setError("Błąd połączenia przy wyszukiwaniu miejsc.")
+      } finally {
+        setWaypointAiLoadingId(null)
+        setWaypointAiLoadingStatus(null)
+      }
+    },
+    [destination, endPoint, viaPoints, waypoints]
+  )
+
   const handleClear = React.useCallback(() => {
     reverseGeocodeAbortRef.current?.abort()
     reverseGeocodeAbortRef.current = null
@@ -254,6 +384,9 @@ export function RoutePlanner() {
     setViaPoints([])
     setSummary(null)
     setError(null)
+    setPoiByWaypointId({})
+    setWaypointAiLoadingId(null)
+    setWaypointAiLoadingStatus(null)
   }, [])
 
   const handleMapBackgroundClick = React.useCallback(
@@ -422,6 +555,7 @@ export function RoutePlanner() {
     setStartPoint(null)
     setEndPoint(null)
     setViaPoints([])
+    setPoiByWaypointId({})
 
     const queries = [o, ...mids, d]
 
@@ -558,7 +692,7 @@ export function RoutePlanner() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 px-5 py-5 md:gap-6 md:px-8 md:py-6 lg:flex-row lg:gap-8">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-5 py-5 md:gap-5 md:px-8 md:py-6 lg:flex-row lg:gap-4">
         <section className="flex min-h-[52vh] flex-1 flex-col lg:min-h-0">
           <MapCanvas
             className="min-h-[52vh] lg:min-h-[calc(100vh-8rem)]"
@@ -576,10 +710,12 @@ export function RoutePlanner() {
             startPoint={startPoint}
             endPoint={endPoint}
             viaPoints={viaPoints}
+            waypointPois={waypointPoisOnMap}
           />
         </section>
 
-        <aside className="flex w-full shrink-0 flex-col lg:max-w-[380px] lg:overflow-y-auto lg:pb-2">
+        <aside className="flex w-full shrink-0 flex-col gap-3 lg:max-w-[380px] lg:overflow-visible lg:pb-2">
+          <div className="flex min-h-0 flex-col gap-3 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:overflow-x-visible lg:pr-0.5">
           <RouteForm
             destination={destination}
             error={error}
@@ -598,8 +734,21 @@ export function RoutePlanner() {
             showAlternativeRoutes={showAlternativeRoutes}
             summaryDistance={summary ? formatDistanceMeters(summary.distanceMeters) : null}
             summaryDuration={summary ? formatDurationSeconds(summary.durationSeconds) : null}
+            viaPoints={viaPoints}
+            endPoint={endPoint}
+            waypointAiLoadingId={waypointAiLoadingId}
+            waypointAiLoadingStatus={waypointAiLoadingStatus}
+            onWaypointPoiSearch={handleWaypointPoiSearch}
             waypoints={waypoints}
           />
+          <RouteAiCard
+            key={routeAiRevisionKey ?? "no-route"}
+            destination={destination}
+            intermediateWaypointLabels={waypoints.map((w) => w.value)}
+            origin={origin}
+            routeReady={Boolean(summary)}
+          />
+          </div>
         </aside>
       </main>
     </div>

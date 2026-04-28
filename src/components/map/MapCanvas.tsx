@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 
 import type { MapClickPickState } from "@/components/map/MapView"
 import { Badge } from "@/components/ui/badge"
+import type { WaypointPoiMarker } from "@/lib/waypoint-poi"
 import { cn } from "@/lib/utils"
 
 const MapView = dynamic(
@@ -31,6 +32,8 @@ type MapCanvasProps = {
   startPoint: { lng: number; lat: number } | null
   endPoint: { lng: number; lat: number } | null
   viaPoints: { lng: number; lat: number }[]
+  /** Miejsca z AI wokół przystanków. */
+  waypointPois: WaypointPoiMarker[]
 }
 
 export function MapCanvas({
@@ -45,6 +48,7 @@ export function MapCanvas({
   startPoint,
   endPoint,
   viaPoints,
+  waypointPois,
 }: MapCanvasProps) {
   return (
     <div
@@ -66,6 +70,7 @@ export function MapCanvas({
           startPoint={startPoint}
           endPoint={endPoint}
           viaPoints={viaPoints}
+          waypointPois={waypointPois}
         />
       </div>
 

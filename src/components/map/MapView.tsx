@@ -3,9 +3,9 @@
 import "mapbox-gl/dist/mapbox-gl.css"
 
 import type { Feature, LineString } from "geojson"
-import { X } from "lucide-react"
+import { ParkingSquare, Trees, Utensils, X } from "lucide-react"
 import mapboxgl from "mapbox-gl"
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Map, {
   Layer,
   Marker,
@@ -17,6 +17,8 @@ import Map, {
 import { Button } from "@/components/ui/button"
 import { getMapboxAccessToken } from "@/lib/mapbox"
 import { neonAccentByIndex } from "@/lib/neon-accents"
+import { buildGoogleMapsPinUrl, buildGoogleMapsPlaceUrl } from "@/lib/maps-links"
+import type { WaypointPoiKind, WaypointPoiMarker } from "@/lib/waypoint-poi"
 import { cn } from "@/lib/utils"
 
 const ROUTE_NEON = neonAccentByIndex(1)
@@ -50,6 +52,8 @@ export type MapViewProps = {
   endPoint: { lng: number; lat: number } | null
   /** Punkty pośrednie (przystanki między startem a celem). */
   viaPoints: { lng: number; lat: number }[]
+  /** Propozycje miejsc (AI) wokół przystanków. */
+  waypointPois: WaypointPoiMarker[]
 }
 
 /** Środek Polski — widok startowy przed pierwszą trasą. */
@@ -62,6 +66,124 @@ const INITIAL_VIEW_STATE = {
 /** Mapbox rzuca, jeśli `layers` zawiera id jeszcze nie dodany do stylu (React dodaje warstwy asynchronicznie). */
 function existingLayerIds(map: mapboxgl.Map, ids: string[]): string[] {
   return ids.filter((id) => Boolean(map.getLayer(id)))
+}
+
+const POI_KIND_LABEL: Record<WaypointPoiKind, string> = {
+  restaurant: "Restauracja",
+  sightseeing: "Ciekawe miejsce",
+  parking: "Parking",
+}
+
+function WaypointPoiMapPin({
+  kind,
+  title,
+  selected,
+}: {
+  kind: WaypointPoiKind
+  title: string
+  selected?: boolean
+}) {
+  const Icon =
+    kind === "restaurant"
+      ? Utensils
+      : kind === "sightseeing"
+        ? Trees
+        : ParkingSquare
+  return (
+    <div
+      className={cn(
+        "flex size-8 cursor-pointer items-center justify-center rounded-lg border-2 border-white shadow-md ring-2 transition-transform duration-150 ease-out",
+        selected && "scale-[1.06]",
+        kind === "restaurant" && "bg-violet-600 ring-violet-400/85",
+        kind === "sightseeing" && "bg-emerald-600 ring-emerald-400/85",
+        kind === "parking" && "bg-slate-600 ring-slate-400/85"
+      )}
+      title={title}
+    >
+      <Icon className="size-3.5 text-white drop-shadow-sm" aria-hidden />
+    </div>
+  )
+}
+
+function WaypointPoiPopupCard({
+  poi,
+  onClose,
+}: {
+  poi: WaypointPoiMarker
+  onClose: () => void
+}) {
+  const kindLabel = POI_KIND_LABEL[poi.kind]
+  const mapsPrimary =
+    poi.googleMapsUrl ??
+    buildGoogleMapsPlaceUrl({
+      name: poi.name,
+      lat: poi.lat,
+      lng: poi.lng,
+      areaHint: poi.areaHint,
+    })
+  const mapsPin =
+    poi.googleMapsPinUrl ?? buildGoogleMapsPinUrl(poi.lat, poi.lng)
+
+  return (
+    <div
+      className="relative min-w-[230px] max-w-[min(300px,88vw)] overflow-hidden rounded-xl border border-white/[0.12] bg-[oklch(0.17_0.024_262)]/95 px-3.5 pb-3 pt-2.5 shadow-lg ring-1 ring-black/20 backdrop-blur-md"
+      onClick={(ev) => ev.stopPropagation()}
+      onKeyDown={(ev) => ev.stopPropagation()}
+      role="dialog"
+      aria-label={poi.name}
+    >
+      <button
+        type="button"
+        className="absolute right-1.5 top-1.5 inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground/80 transition-colors hover:bg-white/[0.08] hover:text-foreground"
+        aria-label="Zamknij"
+        onClick={onClose}
+      >
+        <X className="size-3.5" strokeWidth={2} />
+      </button>
+      <p className="pr-8 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/85">
+        {kindLabel}
+      </p>
+      <p className="mt-1 text-[14px] font-semibold leading-snug text-foreground">{poi.name}</p>
+      {poi.areaHint ? (
+        <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">{poi.areaHint}</p>
+      ) : null}
+      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground/85">
+        {poi.dataSource === "osm"
+          ? "Dane z OpenStreetMap — nazwa lokalu jest z mapy społeczności; Google otwiera wyszukiwanie po tej nazwie."
+          : poi.dataSource === "mapbox"
+            ? "Pozycja z Mapbox Geocoding."
+            : "Kliknij link, aby otworzyć miejsce w mapach."}
+      </p>
+      <div className="mt-3 flex flex-col gap-1.5">
+        <a
+          href={mapsPrimary}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex h-8 items-center justify-center rounded-lg bg-gradient-to-r from-[oklch(0.48_0.21_258)] to-[oklch(0.56_0.22_262)] text-center text-[12px] font-medium text-white shadow-inner transition-opacity hover:opacity-95"
+        >
+          Google Maps — to miejsce (wyszukiwanie)
+        </a>
+        <a
+          href={mapsPin}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-center text-[11px] font-medium text-muted-foreground underline decoration-white/25 underline-offset-2 transition-colors hover:text-foreground"
+        >
+          Pin dokładnie na GPS
+        </a>
+        {poi.osmBrowseUrl ? (
+          <a
+            href={poi.osmBrowseUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center text-[11px] font-medium text-muted-foreground underline decoration-white/25 underline-offset-2 transition-colors hover:text-foreground"
+          >
+            OpenStreetMap (szczegóły obiektu)
+          </a>
+        ) : null}
+      </div>
+    </div>
+  )
 }
 
 /** Indeks trasy alternatywnej z id warstwy (hit / widoczna linia / poświata). */
@@ -116,9 +238,15 @@ export function MapView({
   startPoint,
   endPoint,
   viaPoints,
+  waypointPois,
 }: MapViewProps) {
   const token = getMapboxAccessToken()
   const mapRef = useRef<MapRef>(null)
+  const [openWaypointPoiId, setOpenWaypointPoiId] = useState<string | null>(null)
+  const openWaypointPoi = useMemo(() => {
+    if (!openWaypointPoiId) return null
+    return waypointPois.find((p) => p.id === openWaypointPoiId) ?? null
+  }, [openWaypointPoiId, waypointPois])
 
   /** Klik jest zwykle na widocznej linii (`route-alt-line-*`), nie tylko na niewidocznym obszarze hit. */
   const alternativeRouteQueryLayerIds = useMemo(() => {
@@ -149,13 +277,14 @@ export function MapView({
     if (startPoint) bounds.extend([startPoint.lng, startPoint.lat])
     if (endPoint) bounds.extend([endPoint.lng, endPoint.lat])
     for (const v of viaPoints) bounds.extend([v.lng, v.lat])
+    for (const p of waypointPois) bounds.extend([p.lng, p.lat])
 
     map.fitBounds(bounds, {
       padding: { top: 72, bottom: 72, left: 72, right: 72 },
       duration: 900,
       maxZoom: 14,
     })
-  }, [alternativeRouteGeometries, routeGeometry, startPoint, endPoint, viaPoints])
+  }, [alternativeRouteGeometries, routeGeometry, startPoint, endPoint, viaPoints, waypointPois])
 
   if (!token) {
     return (
@@ -192,6 +321,16 @@ export function MapView({
         attributionControl={false}
         logoPosition="bottom-left"
         onClick={(e) => {
+          const raw = e.originalEvent
+          if (
+            raw?.target instanceof Element &&
+            raw.target.closest("[data-waypoint-poi-marker]")
+          ) {
+            return
+          }
+
+          setOpenWaypointPoiId(null)
+
           const map = mapRef.current?.getMap()
           if (!map) return
 
@@ -341,6 +480,54 @@ export function MapView({
             />
           </Marker>
         ))}
+
+        {waypointPois.map((p) => (
+          <Marker key={p.id} longitude={p.lng} latitude={p.lat} anchor="bottom">
+            <div
+              data-waypoint-poi-marker=""
+              role="button"
+              tabIndex={0}
+              aria-label={`${POI_KIND_LABEL[p.kind]}: ${p.name}. Kliknij, aby zobaczyć szczegóły.`}
+              className="touch-manipulation outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.58_0.2_308)]/55 focus-visible:ring-offset-2 focus-visible:ring-offset-[oklch(0.17_0.024_262)]"
+              onClick={(ev) => {
+                ev.stopPropagation()
+                setOpenWaypointPoiId((cur) => (cur === p.id ? null : p.id))
+              }}
+              onKeyDown={(ev) => {
+                if (ev.key === "Enter" || ev.key === " ") {
+                  ev.preventDefault()
+                  ev.stopPropagation()
+                  setOpenWaypointPoiId((cur) => (cur === p.id ? null : p.id))
+                }
+              }}
+            >
+              <WaypointPoiMapPin
+                kind={p.kind}
+                title={p.name}
+                selected={openWaypointPoi?.id === p.id}
+              />
+            </div>
+          </Marker>
+        ))}
+
+        {openWaypointPoi ? (
+          <Popup
+            longitude={openWaypointPoi.lng}
+            latitude={openWaypointPoi.lat}
+            anchor="bottom"
+            offset={[0, -40]}
+            closeButton={false}
+            closeOnClick={false}
+            closeOnMove={false}
+            maxWidth="min(320px, 92vw)"
+            className="[&_.mapboxgl-popup-content]:!border-0 [&_.mapboxgl-popup-content]:!bg-transparent [&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!shadow-none [&_.mapboxgl-popup-tip]:!border-t-[oklch(0.2_0.02_262)]"
+          >
+            <WaypointPoiPopupCard
+              poi={openWaypointPoi}
+              onClose={() => setOpenWaypointPoiId(null)}
+            />
+          </Popup>
+        ) : null}
 
         {endPoint ? (
           <Marker longitude={endPoint.lng} latitude={endPoint.lat} anchor="center">

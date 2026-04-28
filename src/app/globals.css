@@ -301,6 +301,36 @@
       0 0 40px var(--neon-01-glow);
   }
 
+  /* Sekcja AI — fioletowy gradient + poświata (neon-12). */
+  .app-ai-gradient {
+    color: oklch(0.995 0 0);
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      var(--neon-12-bright) 0%,
+      var(--neon-12-mid) 52%,
+      var(--neon-12-deep) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 14%),
+      inset 0 1px 0 oklch(1 0 0 / 8%),
+      0 0 34px var(--neon-12-glow);
+  }
+
+  .app-ai-gradient:hover {
+    background-color: transparent !important;
+    background-image: linear-gradient(
+      118deg,
+      oklch(0.62 0.2 302) 0%,
+      oklch(0.56 0.21 308) 52%,
+      oklch(0.51 0.195 314) 100%
+    );
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 16%),
+      inset 0 1px 0 oklch(1 0 0 / 10%),
+      0 0 42px var(--neon-12-glow);
+  }
+
   /* Pill / badge: gradient + neon halo — użyj z tekstem jasnym (np. text-white). */
   .app-neon-pill-01 {
     color: oklch(0.995 0 0);
